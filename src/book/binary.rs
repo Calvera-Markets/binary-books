@@ -2,7 +2,7 @@ use super::{BookEvent, Ladder, RejectReason};
 use crate::matching::{canonicalize, match_kind};
 use crate::types::{
     Action, BookSide, MarketId, Order, OrderId, OrderStatus, Outcome, OwnerId, Price, Qty, Seq,
-    TickGrid, TimeInForce,
+    TickGrid, TimeInForce, Ts,
 };
 use std::collections::HashMap;
 
@@ -84,9 +84,29 @@ impl BinaryBook {
             }];
         }
 
+        let (side, price) = canonicalize(new.action, new.outcome, new.limit, &self.grid);
+        if new.post_only && !new.tif.may_rest() {
+            return vec![BookEvent::Rejected {
+                order_id: new.id,
+                reason: RejectReason::PostOnlyWithTif,
+            }];
+        }
+        let fillable = self.fillable_qty(side, price, new.qty);
+        if new.post_only && !fillable.is_zero() {
+            return vec![BookEvent::Rejected {
+                order_id: new.id,
+                reason: RejectReason::PostOnlyWouldTake,
+            }];
+        }
+        if matches!(new.tif, TimeInForce::Fok) && fillable < new.qty {
+            return vec![BookEvent::Rejected {
+                order_id: new.id,
+                reason: RejectReason::FokUnfilled,
+            }];
+        }
+
         let seq = self.next_seq;
         self.next_seq = self.next_seq.next();
-        let (side, price) = canonicalize(new.action, new.outcome, new.limit, &self.grid);
 
         let mut order = Order {
             id: new.id,
@@ -115,6 +135,14 @@ impl BinaryBook {
             return events;
         }
 
+        if !order.tif.may_rest() {
+            events.push(BookEvent::Canceled {
+                order_id: order.id,
+                remaining: order.remaining,
+            });
+            return events;
+        }
+
         order.status = if order.filled().is_zero() {
             OrderStatus::Resting
         } else {
@@ -128,6 +156,40 @@ impl BinaryBook {
         });
         self.orders.insert(order.id, order);
         events
+    }
+
+    /// Cancel resting GTD orders with `expire_at <= now`. Host clock only.
+    pub fn expire_due(&mut self, now: Ts) -> Vec<BookEvent> {
+        let ids: Vec<OrderId> = self
+            .orders
+            .values()
+            .filter_map(|o| match o.tif {
+                TimeInForce::Gtd { expire_at } if expire_at.raw() <= now.raw() => Some(o.id),
+                _ => None,
+            })
+            .collect();
+        let mut events = Vec::new();
+        for id in ids {
+            events.extend(self.cancel(id));
+        }
+        events
+    }
+
+    fn fillable_qty(&self, side: BookSide, price: Price, qty: Qty) -> Qty {
+        let mut left = qty;
+        let mut got = Qty::ZERO;
+        for (px, level_qty, _) in self.ladder(side.opposite()).depth() {
+            if !crosses(price, px, self.grid.collat()) {
+                break;
+            }
+            let take = left.min(level_qty);
+            got = got.saturating_add(take);
+            left = left.saturating_sub(take);
+            if left.is_zero() {
+                break;
+            }
+        }
+        got
     }
 
     pub fn cancel(&mut self, id: OrderId) -> Vec<BookEvent> {
@@ -499,6 +561,107 @@ mod tests {
         assert_eq!(ev.len(), 2);
         assert!(b.order(oid(3)).is_some());
         assert!(b.order(oid(1)).is_none());
+    }
+
+    #[test]
+    fn fok_fills_fully_or_leaves_book() {
+        let mut b = book();
+        b.place(new_order(1, Action::Buy, Outcome::No, 40, 50));
+        let mut kill = new_order(2, Action::Buy, Outcome::Yes, 60, 100);
+        kill.tif = TimeInForce::Fok;
+        let ev = b.place(kill);
+        assert!(matches!(
+            ev[0],
+            BookEvent::Rejected {
+                reason: RejectReason::FokUnfilled,
+                ..
+            }
+        ));
+        assert_eq!(b.no_bids().best_qty(), Some(q(50)));
+        assert!(b.order(oid(1)).is_some());
+
+        let mut ok = new_order(3, Action::Buy, Outcome::Yes, 60, 50);
+        ok.tif = TimeInForce::Fok;
+        let ev = b.place(ok);
+        assert_eq!(trades(&ev), vec![(3, 1, 60, 40, 50, MatchKind::Mint)]);
+        assert!(b.no_bids().is_empty());
+    }
+
+    #[test]
+    fn ioc_partial_then_cancels_rest() {
+        let mut b = book();
+        b.place(new_order(1, Action::Buy, Outcome::No, 40, 40));
+        let mut ioc = new_order(2, Action::Buy, Outcome::Yes, 60, 100);
+        ioc.tif = TimeInForce::Ioc;
+        let ev = b.place(ioc);
+        assert_eq!(trades(&ev), vec![(2, 1, 60, 40, 40, MatchKind::Mint)]);
+        assert!(matches!(
+            ev.last(),
+            Some(BookEvent::Canceled {
+                remaining,
+                ..
+            }) if *remaining == q(60)
+        ));
+        assert!(b.yes_bids().is_empty());
+    }
+
+    #[test]
+    fn post_only_rejects_cross_and_rests_otherwise() {
+        let mut b = book();
+        b.place(new_order(1, Action::Buy, Outcome::No, 40, 10));
+        let mut po = new_order(2, Action::Buy, Outcome::Yes, 60, 10);
+        po.post_only = true;
+        assert!(matches!(
+            b.place(po)[0],
+            BookEvent::Rejected {
+                reason: RejectReason::PostOnlyWouldTake,
+                ..
+            }
+        ));
+        assert_eq!(b.no_bids().best_qty(), Some(q(10)));
+
+        let mut rest = new_order(3, Action::Buy, Outcome::Yes, 50, 10);
+        rest.post_only = true;
+        assert!(matches!(
+            b.place(rest).last(),
+            Some(BookEvent::Resting { .. })
+        ));
+        assert_eq!(b.yes_bids().best(), Some(p(50)));
+    }
+
+    #[test]
+    fn post_only_illegal_with_ioc() {
+        let mut b = book();
+        let mut o = new_order(1, Action::Buy, Outcome::Yes, 50, 1);
+        o.post_only = true;
+        o.tif = TimeInForce::Ioc;
+        assert!(matches!(
+            b.place(o)[0],
+            BookEvent::Rejected {
+                reason: RejectReason::PostOnlyWithTif,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn gtd_expires_on_host_clock() {
+        let mut b = book();
+        let mut o = new_order(1, Action::Buy, Outcome::Yes, 40, 10);
+        o.tif = TimeInForce::Gtd {
+            expire_at: Ts::from_raw(100),
+        };
+        b.place(o);
+        assert!(b.expire_due(Ts::from_raw(99)).is_empty());
+        assert!(b.order(oid(1)).is_some());
+        let ev = b.expire_due(Ts::from_raw(100));
+        assert_eq!(
+            ev,
+            vec![BookEvent::Canceled {
+                order_id: oid(1),
+                remaining: q(10)
+            }]
+        );
     }
 
     #[test]

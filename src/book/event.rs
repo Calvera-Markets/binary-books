@@ -7,6 +7,10 @@ pub enum RejectReason {
     ZeroQty,
     NotFound,
     InvalidReduce,
+    PostOnlyWouldTake,
+    PostOnlyWithTif,
+    FokUnfilled,
+    Expired,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
