@@ -15,9 +15,9 @@ pub mod venue;
 pub use book::{BinaryBook, BookEvent, NewOrder, RejectReason};
 pub use engine::{Engine, Place};
 pub use event::{BasketQuote, Event};
-pub use risk::{CashLedger, NoopRisk, RiskPort, reserve_notional};
-pub use matching::{MatchKind, Priority, canonicalize, match_kind};
+pub use matching::{canonicalize, match_kind, MatchKind, Priority};
+pub use risk::{reserve_notional, CashLedger, NoopRisk, RiskPort};
 pub use types::{
-    Action, Band, BookSide, EventId, GridError, MarketId, Order, OrderId, OrderStatus, Outcome,
-    OwnerId, Price, Qty, Seq, Stp, TickGrid, TimeInForce, Ts, notional,
+    notional, Action, Band, BookSide, EventId, GridError, MarketId, Order, OrderId, OrderStatus,
+    Outcome, OwnerId, Price, Qty, Seq, Stp, TickGrid, TimeInForce, Ts,
 };

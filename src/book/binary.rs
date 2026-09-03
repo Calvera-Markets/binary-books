@@ -319,8 +319,9 @@ impl BinaryBook {
                     }
                 }
             }
-            let Some((_, maker_id, take, gone)) =
-                self.ladder_mut(opposite).take_best_ranked(taker.remaining, prefer_sell)
+            let Some((_, maker_id, take, gone)) = self
+                .ladder_mut(opposite)
+                .take_best_ranked(taker.remaining, prefer_sell)
             else {
                 break;
             };
@@ -451,10 +452,7 @@ mod tests {
         let rest = b.place(new_order(1, Action::Buy, Outcome::No, 40, 100));
         assert!(matches!(rest.last(), Some(BookEvent::Resting { .. })));
         let fill = b.place(new_order(2, Action::Buy, Outcome::Yes, 60, 100));
-        assert_eq!(
-            trades(&fill),
-            vec![(2, 1, 60, 40, 100, MatchKind::Mint)]
-        );
+        assert_eq!(trades(&fill), vec![(2, 1, 60, 40, 100, MatchKind::Mint)]);
         assert!(!b.is_crossed());
         assert!(b.yes_bids().is_empty());
         assert!(b.no_bids().is_empty());
@@ -466,10 +464,7 @@ mod tests {
         b.place(new_order(1, Action::Buy, Outcome::No, 40, 100));
         let fill = b.place(new_order(2, Action::Buy, Outcome::Yes, 65, 100));
         // Maker NO 40 ⇒ implied YES ask 60. Taker limit 65, fills at 60.
-        assert_eq!(
-            trades(&fill),
-            vec![(2, 1, 60, 40, 100, MatchKind::Mint)]
-        );
+        assert_eq!(trades(&fill), vec![(2, 1, 60, 40, 100, MatchKind::Mint)]);
         assert!(!b.is_crossed());
     }
 
@@ -538,10 +533,7 @@ mod tests {
         let mut b = book();
         b.place(new_order(1, Action::Sell, Outcome::No, 40, 100));
         let ev = b.place(new_order(2, Action::Sell, Outcome::Yes, 60, 100));
-        assert_eq!(
-            trades(&ev),
-            vec![(2, 1, 60, 40, 100, MatchKind::Merge)]
-        );
+        assert_eq!(trades(&ev), vec![(2, 1, 60, 40, 100, MatchKind::Merge)]);
         assert!(!b.is_crossed());
     }
 

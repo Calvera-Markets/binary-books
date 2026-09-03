@@ -2,12 +2,10 @@
 //!
 //! Does not own a book. Does not match.
 
-use super::{DepthLevel, complement_asks, depth_levels};
+use super::{complement_asks, depth_levels, DepthLevel};
 use crate::book::{BinaryBook, BookEvent, NewOrder};
 use crate::matching::MatchKind;
-use crate::types::{
-    Action, MarketId, OrderId, Outcome, OwnerId, Price, Qty, Stp, TimeInForce,
-};
+use crate::types::{Action, MarketId, OrderId, Outcome, OwnerId, Price, Qty, Stp, TimeInForce};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {

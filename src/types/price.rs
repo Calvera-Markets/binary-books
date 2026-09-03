@@ -36,7 +36,9 @@ mod tests {
 
     #[test]
     fn checked_add_overflows_to_none() {
-        assert!(Price::from_ticks(u32::MAX).checked_add(Price::from_ticks(1)).is_none());
+        assert!(Price::from_ticks(u32::MAX)
+            .checked_add(Price::from_ticks(1))
+            .is_none());
         assert_eq!(
             Price::from_ticks(40).checked_add(Price::from_ticks(60)),
             Some(Price::from_ticks(100))

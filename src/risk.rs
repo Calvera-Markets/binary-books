@@ -95,7 +95,13 @@ mod tests {
     fn buy_yes_reserves_price_times_qty() {
         let g = TickGrid::cents();
         assert_eq!(
-            reserve_notional(&g, Action::Buy, Outcome::Yes, Price::from_ticks(40), Qty::from_lots(10)),
+            reserve_notional(
+                &g,
+                Action::Buy,
+                Outcome::Yes,
+                Price::from_ticks(40),
+                Qty::from_lots(10)
+            ),
             400
         );
     }
@@ -104,7 +110,13 @@ mod tests {
     fn sell_yes_reserves_complement() {
         let g = TickGrid::cents();
         assert_eq!(
-            reserve_notional(&g, Action::Sell, Outcome::Yes, Price::from_ticks(40), Qty::from_lots(100)),
+            reserve_notional(
+                &g,
+                Action::Sell,
+                Outcome::Yes,
+                Price::from_ticks(40),
+                Qty::from_lots(100)
+            ),
             6000
         );
     }
@@ -125,7 +137,13 @@ mod tests {
         let mut led = CashLedger::new();
         led.credit(owner(), 6500);
         let g = TickGrid::cents();
-        let locked = reserve_notional(&g, Action::Buy, Outcome::Yes, Price::from_ticks(65), Qty::from_lots(100));
+        let locked = reserve_notional(
+            &g,
+            Action::Buy,
+            Outcome::Yes,
+            Price::from_ticks(65),
+            Qty::from_lots(100),
+        );
         assert_eq!(locked, 6500);
         led.reserve(owner(), locked).unwrap();
         let fill = crate::notional(Price::from_ticks(60), Qty::from_lots(100));

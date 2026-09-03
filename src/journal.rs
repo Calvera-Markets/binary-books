@@ -66,9 +66,7 @@ pub fn snapshot_hash(book: &BinaryBook) -> (Vec<(u32, u64, usize)>, Vec<(u32, u6
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{
-        Action, MarketId, Outcome, OwnerId, Price, Qty, Stp, TimeInForce,
-    };
+    use crate::types::{Action, MarketId, Outcome, OwnerId, Price, Qty, Stp, TimeInForce};
 
     fn order(id: u64, outcome: Outcome, px: u32, qty: u64) -> NewOrder {
         NewOrder {

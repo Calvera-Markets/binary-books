@@ -120,12 +120,16 @@ BinaryBook
 
 Incoming intents are canonicalized onto a ladder **before** matching:
 
+Prices are in the **named outcome's** units (what the trader typed):
+
 | `(action, outcome, price)` | Rests on        | At price        |
 |----------------------------|-----------------|-----------------|
 | Buy YES `p`                | `yes_bids`      | `p`             |
-| Sell NO `p`                | `yes_bids`      | `p`             |
+| Sell NO `p`                | `yes_bids`      | `1 − p`         |
 | Buy NO `q`                 | `no_bids`       | `q`             |
 | Sell YES `p`               | `no_bids`       | `1 − p`         |
+
+Kalshi YES-priced `book_side` (bid ≡ YES, ask ≡ NO) is converted by the Kalshi adapter *before* this table.
 
 Matching an incoming YES bid at `p`:
 

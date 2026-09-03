@@ -97,6 +97,8 @@ mod tests {
         assert!(yes
             .iter()
             .all(|&(s, px)| s == BookSide::YesBid && px == p(55)));
-        assert!(no.iter().all(|&(s, px)| s == BookSide::NoBid && px == p(45)));
+        assert!(no
+            .iter()
+            .all(|&(s, px)| s == BookSide::NoBid && px == p(45)));
     }
 }

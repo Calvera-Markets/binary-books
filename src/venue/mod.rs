@@ -34,11 +34,7 @@ fn depth_levels(ladder: &Ladder) -> Vec<DepthLevel> {
     ladder
         .depth()
         .into_iter()
-        .map(|(price, qty, orders)| DepthLevel {
-            price,
-            qty,
-            orders,
-        })
+        .map(|(price, qty, orders)| DepthLevel { price, qty, orders })
         .collect()
 }
 

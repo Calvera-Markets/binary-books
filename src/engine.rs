@@ -148,7 +148,9 @@ mod tests {
         eng.open_event(eid(), TickGrid::cents(), [mid(1)]).unwrap();
         eng.open_event(EventId::from_raw(2), TickGrid::cents(), [mid(1)])
             .unwrap();
-        let a = eng.place(eid(), mid(1), spec(1, Outcome::Yes, 40, 1)).unwrap();
+        let a = eng
+            .place(eid(), mid(1), spec(1, Outcome::Yes, 40, 1))
+            .unwrap();
         let b = eng
             .place(EventId::from_raw(2), mid(1), spec(2, Outcome::Yes, 40, 1))
             .unwrap();

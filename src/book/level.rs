@@ -79,10 +79,7 @@ impl Level {
             return None;
         }
         let idx = if prefer_sell {
-            self.entries
-                .iter()
-                .position(|e| e.is_sell)
-                .unwrap_or(0)
+            self.entries.iter().position(|e| e.is_sell).unwrap_or(0)
         } else {
             0
         };

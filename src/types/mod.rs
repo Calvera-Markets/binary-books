@@ -27,9 +27,6 @@ mod tests {
     fn notional_is_u128_and_does_not_truncate() {
         let p = Price::from_ticks(u32::MAX);
         let q = Qty::from_lots(u64::MAX);
-        assert_eq!(
-            notional(p, q),
-            u128::from(u32::MAX) * u128::from(u64::MAX)
-        );
+        assert_eq!(notional(p, q), u128::from(u32::MAX) * u128::from(u64::MAX));
     }
 }

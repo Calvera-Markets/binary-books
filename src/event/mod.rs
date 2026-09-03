@@ -23,11 +23,7 @@ pub struct BasketQuote {
 }
 
 impl Event {
-    pub fn new(
-        id: EventId,
-        grid: TickGrid,
-        markets: impl IntoIterator<Item = MarketId>,
-    ) -> Self {
+    pub fn new(id: EventId, grid: TickGrid, markets: impl IntoIterator<Item = MarketId>) -> Self {
         let markets = markets
             .into_iter()
             .map(|m| (m, BinaryBook::new(grid.clone())))
@@ -68,7 +64,11 @@ impl Event {
         self.markets.get_mut(&market)
     }
 
-    pub fn place(&mut self, market: MarketId, order: NewOrder) -> Result<Vec<BookEvent>, RejectReason> {
+    pub fn place(
+        &mut self,
+        market: MarketId,
+        order: NewOrder,
+    ) -> Result<Vec<BookEvent>, RejectReason> {
         if !self.open {
             return Err(RejectReason::Closed);
         }
@@ -78,7 +78,11 @@ impl Event {
             .ok_or(RejectReason::NotFound)
     }
 
-    pub fn cancel(&mut self, market: MarketId, id: OrderId) -> Result<Vec<BookEvent>, RejectReason> {
+    pub fn cancel(
+        &mut self,
+        market: MarketId,
+        id: OrderId,
+    ) -> Result<Vec<BookEvent>, RejectReason> {
         self.markets
             .get_mut(&market)
             .map(|b| b.cancel(id))
@@ -160,16 +164,18 @@ mod tests {
     }
 
     fn three() -> Event {
-        Event::new(EventId::from_raw(1), TickGrid::cents(), [mid(1), mid(2), mid(3)])
+        Event::new(
+            EventId::from_raw(1),
+            TickGrid::cents(),
+            [mid(1), mid(2), mid(3)],
+        )
     }
 
     #[test]
     fn matching_is_per_market() {
         let mut e = three();
         e.place(mid(1), order(1, 1, Outcome::No, 40, 10)).unwrap();
-        let ev = e
-            .place(mid(2), order(2, 2, Outcome::Yes, 60, 10))
-            .unwrap();
+        let ev = e.place(mid(2), order(2, 2, Outcome::Yes, 60, 10)).unwrap();
         assert!(ev.iter().all(|x| !matches!(x, BookEvent::Trade { .. })));
         assert!(e.book(mid(1)).unwrap().no_bids().best() == Some(p(40)));
         assert!(e.book(mid(2)).unwrap().yes_bids().best() == Some(p(60)));

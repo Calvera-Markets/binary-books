@@ -47,7 +47,10 @@ mod tests {
     #[test]
     fn rest_flags() {
         assert!(TimeInForce::Gtc.may_rest());
-        assert!(TimeInForce::Gtd { expire_at: Ts::from_raw(1) }.may_rest());
+        assert!(TimeInForce::Gtd {
+            expire_at: Ts::from_raw(1)
+        }
+        .may_rest());
         assert!(!TimeInForce::Ioc.may_rest());
         assert!(!TimeInForce::Fok.may_rest());
     }
