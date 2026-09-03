@@ -1,0 +1,7 @@
+{
+  "name": "empty book, buy YES 60 then buy NO 40 mints",
+  "orders": [
+    {"id": 1, "action": "buy", "outcome": "yes", "limit": 60, "qty": 100},
+    {"id": 2, "action": "buy", "outcome": "no", "limit": 40, "qty": 100}
+  ]
+}
