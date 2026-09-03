@@ -6,6 +6,7 @@
 pub mod book;
 pub mod engine;
 pub mod event;
+pub mod journal;
 pub mod matching;
 pub mod risk;
 pub mod types;

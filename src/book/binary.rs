@@ -7,7 +7,7 @@ use crate::types::{
 use std::collections::HashMap;
 
 /// Inbound order. `limit` is in the named outcome's units.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewOrder {
     pub id: OrderId,
     pub owner: OwnerId,
