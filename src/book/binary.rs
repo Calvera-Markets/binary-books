@@ -349,6 +349,29 @@ mod tests {
     }
 
     #[test]
+    fn sell_yes_vs_sell_no_is_merge() {
+        let mut b = book();
+        b.place(new_order(1, Action::Sell, Outcome::No, 40, 100));
+        let ev = b.place(new_order(2, Action::Sell, Outcome::Yes, 60, 100));
+        assert_eq!(
+            trades(&ev),
+            vec![(2, 1, 60, 40, 100, MatchKind::Merge)]
+        );
+        assert!(!b.is_crossed());
+    }
+
+    #[test]
+    fn buy_no_vs_sell_no_is_complementary() {
+        let mut b = book();
+        b.place(new_order(1, Action::Sell, Outcome::No, 40, 50));
+        let ev = b.place(new_order(2, Action::Buy, Outcome::No, 40, 50));
+        assert_eq!(
+            trades(&ev),
+            vec![(2, 1, 60, 40, 50, MatchKind::Complementary)]
+        );
+    }
+
+    #[test]
     fn reject_off_grid_and_zero_qty() {
         let mut b = book();
         let z = b.place(new_order(1, Action::Buy, Outcome::Yes, 50, 0));
