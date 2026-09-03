@@ -11,5 +11,5 @@ pub use book::{BinaryBook, BookEvent, NewOrder, RejectReason};
 pub use matching::{MatchKind, canonicalize, match_kind};
 pub use types::{
     Action, BookSide, EventId, GridError, MarketId, Order, OrderId, OrderStatus, Outcome, OwnerId,
-    Price, Qty, Seq, TickGrid, TimeInForce, Ts, notional,
+    Price, Qty, Seq, Stp, TickGrid, TimeInForce, Ts, notional,
 };

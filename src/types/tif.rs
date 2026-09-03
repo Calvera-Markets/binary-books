@@ -16,6 +16,19 @@ impl TimeInForce {
     }
 }
 
+/// Self-trade prevention. Applied when taker and resting maker share `owner`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Stp {
+    #[default]
+    None,
+    /// Leave the maker in place; try the next resting order.
+    SkipMaker,
+    /// Cancel the taker (including any remainder). Maker stays.
+    CancelTaker,
+    /// Cancel the would-be maker and the taker remainder.
+    CancelBoth,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum OrderStatus {
     New,

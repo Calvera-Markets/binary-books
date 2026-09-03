@@ -1,5 +1,5 @@
 use super::{
-    Action, BookSide, MarketId, OrderId, OrderStatus, Outcome, OwnerId, Price, Qty, Seq,
+    Action, BookSide, MarketId, OrderId, OrderStatus, Outcome, OwnerId, Price, Qty, Seq, Stp,
     TimeInForce,
 };
 
@@ -20,6 +20,7 @@ pub struct Order {
     pub seq: Seq,
     pub tif: TimeInForce,
     pub post_only: bool,
+    pub stp: Stp,
     pub status: OrderStatus,
 }
 
@@ -54,6 +55,7 @@ mod tests {
             seq: Seq::from_raw(1),
             tif: TimeInForce::Gtc,
             post_only: false,
+            stp: Stp::None,
             status: OrderStatus::Partial,
         }
     }

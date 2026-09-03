@@ -12,7 +12,7 @@ pub use order::Order;
 pub use price::Price;
 pub use qty::Qty;
 pub use side::{Action, BookSide, Outcome};
-pub use tif::{OrderStatus, TimeInForce};
+pub use tif::{OrderStatus, Stp, TimeInForce};
 
 /// `price.ticks() * qty.lots()` as `u128` so a full book cannot overflow `u64`.
 pub fn notional(price: Price, qty: Qty) -> u128 {

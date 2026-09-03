@@ -46,6 +46,12 @@ impl Level {
         self.entries.push_back(Entry { id, qty });
     }
 
+    pub fn push_front(&mut self, id: OrderId, qty: Qty) {
+        debug_assert!(!qty.is_zero());
+        self.qty = self.qty.saturating_add(qty);
+        self.entries.push_front(Entry { id, qty });
+    }
+
     pub fn pop_front(&mut self) -> Option<(OrderId, Qty)> {
         let e = self.entries.pop_front()?;
         self.qty = self.qty.saturating_sub(e.qty);

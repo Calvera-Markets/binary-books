@@ -29,6 +29,24 @@ impl Ladder {
         self.levels.entry(price).or_default().push_back(id, qty);
     }
 
+    pub fn front_id(&self, price: Price) -> Option<OrderId> {
+        self.levels.get(&price).and_then(|l| l.front_id())
+    }
+
+    /// Pop the entire FIFO head at `price` (used to park skip-maker orders).
+    pub fn pop_front_at(&mut self, price: Price) -> Option<(OrderId, Qty)> {
+        let level = self.levels.get_mut(&price)?;
+        let popped = level.pop_front()?;
+        if level.is_empty() {
+            self.levels.remove(&price);
+        }
+        Some(popped)
+    }
+
+    pub fn push_front(&mut self, price: Price, id: OrderId, qty: Qty) {
+        self.levels.entry(price).or_default().push_front(id, qty);
+    }
+
     /// Fill against the best level's FIFO head.
     pub fn take_best(&mut self, qty: Qty) -> Option<(Price, OrderId, Qty, bool)> {
         let price = self.best()?;

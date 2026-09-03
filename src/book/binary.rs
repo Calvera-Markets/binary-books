@@ -2,7 +2,7 @@ use super::{BookEvent, Ladder, RejectReason};
 use crate::matching::{canonicalize, match_kind};
 use crate::types::{
     Action, BookSide, MarketId, Order, OrderId, OrderStatus, Outcome, OwnerId, Price, Qty, Seq,
-    TickGrid, TimeInForce, Ts,
+    Stp, TickGrid, TimeInForce, Ts,
 };
 use std::collections::HashMap;
 
@@ -18,6 +18,7 @@ pub struct NewOrder {
     pub qty: Qty,
     pub tif: TimeInForce,
     pub post_only: bool,
+    pub stp: Stp,
 }
 
 /// Dual-bid matching engine for one binary market.
@@ -122,6 +123,7 @@ impl BinaryBook {
             seq,
             tif: new.tif,
             post_only: new.post_only,
+            stp: new.stp,
             status: OrderStatus::New,
         };
 
@@ -258,12 +260,53 @@ impl BinaryBook {
 
     fn match_incoming(&mut self, taker: &mut Order, events: &mut Vec<BookEvent>) {
         let opposite = taker.side.opposite();
+        let mut parked: Vec<(Price, OrderId, Qty)> = Vec::new();
         while !taker.remaining.is_zero() {
             let Some(best) = self.ladder(opposite).best() else {
                 break;
             };
             if !crosses(taker.price, best, self.grid.collat()) {
                 break;
+            }
+            let Some(maker_id) = self.ladder(opposite).front_id(best) else {
+                break;
+            };
+            let maker_owner = self
+                .orders
+                .get(&maker_id)
+                .expect("resting maker must be in the map")
+                .owner;
+            if maker_owner == taker.owner && taker.stp != Stp::None {
+                match taker.stp {
+                    Stp::None => unreachable!(),
+                    Stp::SkipMaker => {
+                        let (id, qty) = self
+                            .ladder_mut(opposite)
+                            .pop_front_at(best)
+                            .expect("front just peeked");
+                        parked.push((best, id, qty));
+                        continue;
+                    }
+                    Stp::CancelTaker => {
+                        events.push(BookEvent::Canceled {
+                            order_id: taker.id,
+                            remaining: taker.remaining,
+                        });
+                        taker.remaining = Qty::ZERO;
+                        taker.status = OrderStatus::Canceled;
+                        break;
+                    }
+                    Stp::CancelBoth => {
+                        events.extend(self.cancel(maker_id));
+                        events.push(BookEvent::Canceled {
+                            order_id: taker.id,
+                            remaining: taker.remaining,
+                        });
+                        taker.remaining = Qty::ZERO;
+                        taker.status = OrderStatus::Canceled;
+                        break;
+                    }
+                }
             }
             let Some((_, maker_id, take, gone)) =
                 self.ladder_mut(opposite).take_best(taker.remaining)
@@ -297,7 +340,10 @@ impl BinaryBook {
                 self.orders.remove(&maker_id);
             }
         }
-        if taker.remaining.is_zero() {
+        for (price, id, qty) in parked.into_iter().rev() {
+            self.ladder_mut(opposite).push_front(price, id, qty);
+        }
+        if taker.remaining.is_zero() && taker.status != OrderStatus::Canceled {
             taker.status = OrderStatus::Filled;
         }
     }
@@ -355,6 +401,7 @@ mod tests {
             qty: q(qty),
             tif: TimeInForce::Gtc,
             post_only: false,
+            stp: Stp::None,
         }
     }
 
@@ -662,6 +709,71 @@ mod tests {
                 remaining: q(10)
             }]
         );
+    }
+
+    #[test]
+    fn stp_skip_maker_fills_next() {
+        let mut b = book();
+        let mut a = new_order(1, Action::Buy, Outcome::Yes, 60, 10);
+        a.owner = OwnerId::from_raw(9);
+        b.place(a);
+        b.place(new_order(2, Action::Buy, Outcome::Yes, 60, 10));
+        let mut taker = new_order(3, Action::Buy, Outcome::No, 40, 10);
+        taker.owner = OwnerId::from_raw(9);
+        taker.stp = Stp::SkipMaker;
+        let ev = b.place(taker);
+        assert_eq!(trades(&ev), vec![(3, 2, 60, 40, 10, MatchKind::Mint)]);
+        assert!(b.order(oid(1)).is_some());
+        assert!(b.order(oid(2)).is_none());
+    }
+
+    #[test]
+    fn stp_cancel_taker_leaves_maker() {
+        let mut b = book();
+        let mut a = new_order(1, Action::Buy, Outcome::Yes, 60, 10);
+        a.owner = OwnerId::from_raw(9);
+        b.place(a);
+        let mut taker = new_order(2, Action::Buy, Outcome::No, 40, 10);
+        taker.owner = OwnerId::from_raw(9);
+        taker.stp = Stp::CancelTaker;
+        let ev = b.place(taker);
+        assert!(trades(&ev).is_empty());
+        assert!(matches!(
+            ev.last(),
+            Some(BookEvent::Canceled {
+                order_id,
+                ..
+            }) if *order_id == oid(2)
+        ));
+        assert!(b.order(oid(1)).is_some());
+        assert!(b.yes_bids().best_qty() == Some(q(10)));
+    }
+
+    #[test]
+    fn stp_cancel_both() {
+        let mut b = book();
+        let mut a = new_order(1, Action::Buy, Outcome::Yes, 60, 10);
+        a.owner = OwnerId::from_raw(9);
+        b.place(a);
+        let mut taker = new_order(2, Action::Buy, Outcome::No, 40, 10);
+        taker.owner = OwnerId::from_raw(9);
+        taker.stp = Stp::CancelBoth;
+        let ev = b.place(taker);
+        assert!(trades(&ev).is_empty());
+        assert!(b.order(oid(1)).is_none());
+        assert!(b.yes_bids().is_empty());
+    }
+
+    #[test]
+    fn stp_none_allows_self_trade() {
+        let mut b = book();
+        let mut a = new_order(1, Action::Buy, Outcome::Yes, 60, 10);
+        a.owner = OwnerId::from_raw(9);
+        b.place(a);
+        let mut taker = new_order(2, Action::Buy, Outcome::No, 40, 10);
+        taker.owner = OwnerId::from_raw(9);
+        let ev = b.place(taker);
+        assert_eq!(trades(&ev).len(), 1);
     }
 
     #[test]
