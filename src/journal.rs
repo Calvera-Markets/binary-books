@@ -2,7 +2,8 @@
 //! the same ids and timestamps.
 
 use crate::book::{BinaryBook, BookEvent, NewOrder};
-use crate::types::{OrderId, Qty, TickGrid, Ts};
+use crate::engine::{Engine, Place};
+use crate::types::{EventId, MarketId, OrderId, Qty, TickGrid, Ts};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -47,6 +48,72 @@ pub fn replay(grid: TickGrid, cmds: &[Command]) -> (BinaryBook, Vec<Vec<BookEven
 }
 
 /// Depth + next-seq checksum for replay equality.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EngineCommand {
+    OpenEvent {
+        id: EventId,
+        grid: TickGrid,
+        markets: Vec<MarketId>,
+    },
+    Place {
+        event: EventId,
+        market: MarketId,
+        spec: Place,
+    },
+    Cancel {
+        event: EventId,
+        market: MarketId,
+        id: OrderId,
+    },
+    Reduce {
+        event: EventId,
+        market: MarketId,
+        id: OrderId,
+        qty: Qty,
+    },
+    CloseEvent(EventId),
+    ExpireDue {
+        event: EventId,
+        ts: Ts,
+    },
+}
+
+pub fn replay_engine(min_order_size: Qty, cmds: &[EngineCommand]) -> Engine {
+    let mut engine = Engine::new(min_order_size);
+    for cmd in cmds {
+        match cmd {
+            EngineCommand::OpenEvent { id, grid, markets } => {
+                let _ = engine.open_event(*id, grid.clone(), markets.clone());
+            }
+            EngineCommand::Place {
+                event,
+                market,
+                spec,
+            } => {
+                let _ = engine.place(*event, *market, spec.clone());
+            }
+            EngineCommand::Cancel { event, market, id } => {
+                let _ = engine.cancel(*event, *market, *id);
+            }
+            EngineCommand::Reduce {
+                event,
+                market,
+                id,
+                qty,
+            } => {
+                let _ = engine.reduce(*event, *market, *id, *qty);
+            }
+            EngineCommand::CloseEvent(id) => {
+                let _ = engine.close_event(*id);
+            }
+            EngineCommand::ExpireDue { event, ts } => {
+                let _ = engine.expire_due(*event, *ts);
+            }
+        }
+    }
+    engine
+}
+
 pub fn snapshot_hash(book: &BinaryBook) -> (Vec<(u32, u64, usize)>, Vec<(u32, u64, usize)>) {
     let yes = book
         .yes_bids()
@@ -107,5 +174,54 @@ mod tests {
         let (replayed, replay_events) = replay(grid, journal.commands());
         assert_eq!(live_events, replay_events);
         assert_eq!(snapshot_hash(&live), snapshot_hash(&replayed));
+    }
+
+    #[test]
+    fn engine_replay_matches_live_depth() {
+        let grid = TickGrid::cents();
+        let eid = EventId::from_raw(1);
+        let m = MarketId::from_raw(1);
+        let spec = |owner, px, qty| Place {
+            owner: OwnerId::from_raw(owner),
+            action: Action::Buy,
+            outcome: Outcome::Yes,
+            limit: Price::from_ticks(px),
+            qty: Qty::from_lots(qty),
+            tif: TimeInForce::Gtc,
+            post_only: false,
+            stp: Stp::None,
+        };
+        let cmds = [
+            EngineCommand::OpenEvent {
+                id: eid,
+                grid: grid.clone(),
+                markets: vec![m],
+            },
+            EngineCommand::Place {
+                event: eid,
+                market: m,
+                spec: spec(1, 40, 10),
+            },
+            EngineCommand::Place {
+                event: eid,
+                market: m,
+                spec: spec(2, 50, 5),
+            },
+            EngineCommand::Reduce {
+                event: eid,
+                market: m,
+                id: OrderId::from_raw(1),
+                qty: Qty::from_lots(3),
+            },
+        ];
+        let mut live = Engine::new(Qty::ONE);
+        live.open_event(eid, grid, [m]).unwrap();
+        live.place(eid, m, spec(1, 40, 10)).unwrap();
+        live.place(eid, m, spec(2, 50, 5)).unwrap();
+        live.reduce(eid, m, OrderId::from_raw(1), Qty::from_lots(3))
+            .unwrap();
+        let replayed = replay_engine(Qty::ONE, &cmds);
+        let h = |e: &Engine| snapshot_hash(e.event(eid).unwrap().book(m).unwrap());
+        assert_eq!(h(&live), h(&replayed));
     }
 }

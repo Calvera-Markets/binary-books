@@ -15,7 +15,7 @@ pub struct Engine {
 }
 
 /// Place request without an engine-assigned id.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
     pub owner: OwnerId,
     pub action: Action,
@@ -91,6 +91,35 @@ impl Engine {
             .get_mut(&event)
             .ok_or(RejectReason::NotFound)?
             .place(market, order)
+    }
+
+    pub fn reduce(
+        &mut self,
+        event: EventId,
+        market: MarketId,
+        id: OrderId,
+        new_qty: Qty,
+    ) -> Result<Vec<BookEvent>, RejectReason> {
+        self.events
+            .get_mut(&event)
+            .ok_or(RejectReason::NotFound)?
+            .book_mut(market)
+            .ok_or(RejectReason::NotFound)
+            .map(|b| b.reduce(id, new_qty))
+    }
+
+    /// Cancel and place a new order. Size-down at the same price should use
+    /// [`Self::reduce`] so time priority is kept.
+    pub fn replace(
+        &mut self,
+        event: EventId,
+        market: MarketId,
+        id: OrderId,
+        spec: Place,
+    ) -> Result<Vec<BookEvent>, RejectReason> {
+        let mut out = self.cancel(event, market, id)?;
+        out.extend(self.place(event, market, spec)?);
+        Ok(out)
     }
 
     pub fn cancel(
@@ -174,6 +203,52 @@ mod tests {
             eng.place(eid(), mid(1), spec(1, Outcome::Yes, 40, 1)),
             Err(RejectReason::Closed)
         );
+    }
+
+    #[test]
+    fn reduce_keeps_resting_id() {
+        let mut eng = Engine::new(Qty::from_lots(1));
+        eng.open_event(eid(), TickGrid::cents(), [mid(1)]).unwrap();
+        eng.place(eid(), mid(1), spec(1, Outcome::Yes, 40, 10))
+            .unwrap();
+        let id = OrderId::from_raw(1);
+        eng.reduce(eid(), mid(1), id, Qty::from_lots(4)).unwrap();
+        assert_eq!(
+            eng.event(eid())
+                .unwrap()
+                .book(mid(1))
+                .unwrap()
+                .order(id)
+                .unwrap()
+                .remaining
+                .lots(),
+            4
+        );
+    }
+
+    #[test]
+    fn replace_cancels_then_places() {
+        let mut eng = Engine::new(Qty::from_lots(1));
+        eng.open_event(eid(), TickGrid::cents(), [mid(1)]).unwrap();
+        eng.place(eid(), mid(1), spec(1, Outcome::Yes, 40, 10))
+            .unwrap();
+        let ev = eng
+            .replace(
+                eid(),
+                mid(1),
+                OrderId::from_raw(1),
+                spec(1, Outcome::Yes, 45, 5),
+            )
+            .unwrap();
+        assert!(ev.iter().any(|e| matches!(e, BookEvent::Canceled { .. })));
+        assert!(ev.iter().any(|e| matches!(e, BookEvent::Resting { .. })));
+        assert!(eng
+            .event(eid())
+            .unwrap()
+            .book(mid(1))
+            .unwrap()
+            .order(OrderId::from_raw(1))
+            .is_none());
     }
 
     #[test]

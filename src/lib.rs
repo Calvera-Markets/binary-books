@@ -6,6 +6,7 @@
 pub mod book;
 pub mod engine;
 pub mod event;
+pub mod exchange;
 pub mod inventory;
 pub mod journal;
 pub mod matching;
@@ -16,7 +17,9 @@ pub mod venue;
 pub use book::{BinaryBook, BookEvent, FillParty, NewOrder, RejectReason};
 pub use engine::{Engine, Place};
 pub use event::{BasketQuote, Event};
+pub use exchange::Exchange;
 pub use inventory::TokenLedger;
+pub use journal::{replay, replay_engine, Command, EngineCommand, MemoryJournal};
 pub use matching::{canonicalize, match_kind, MatchKind, Priority};
 pub use risk::{reserve_notional, CashLedger, NoopRisk, RiskPort};
 pub use types::{
