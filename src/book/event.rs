@@ -14,6 +14,7 @@ pub enum RejectReason {
     MinSize,
     Closed,
     DuplicateEvent,
+    Insufficient,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
