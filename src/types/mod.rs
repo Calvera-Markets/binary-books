@@ -6,7 +6,7 @@ mod qty;
 mod side;
 mod tif;
 
-pub use grid::{GridError, TickGrid};
+pub use grid::{Band, GridError, TickGrid};
 pub use ids::{EventId, MarketId, OrderId, OwnerId, Seq, Ts};
 pub use order::Order;
 pub use price::Price;

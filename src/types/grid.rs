@@ -3,51 +3,82 @@ use super::Price;
 /// Error constructing a [`TickGrid`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GridError {
-    /// Collateral (the `$1` tick count) must be positive.
     ZeroCollateral,
-    /// Step must be positive.
     ZeroStep,
-    /// `collat` must be divisible by `step` so complements stay on-grid.
     StepNotDivisor,
-    /// Grid must have at least one tradable price (`collat > step`).
     NoTradablePrice,
+    EmptyBands,
+    BandOrder,
+    AsymmetricBands,
+}
+
+/// Inclusive `[start, end]` range with a fixed step. `end` must be on-step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Band {
+    pub start: u32,
+    pub end: u32,
+    pub step: u32,
+}
+
+impl Band {
+    fn contains(self, t: u32) -> bool {
+        t >= self.start && t <= self.end && (t - self.start) % self.step == 0
+    }
 }
 
 /// Discrete price grid. Complements are exact: `p + complement(p) = collat`.
-///
-/// Linear grids (this module, C1) use a single step. Banded / tapered grids
-/// come later and must preserve the same complement involution.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TickGrid {
     collat: Price,
-    step: u32,
+    bands: Vec<Band>,
 }
 
 impl TickGrid {
     /// Linear grid: tradable prices are `step, 2*step, …, collat - step`.
-    ///
-    /// `0` and `collat` are on the grid as settlement bounds but are not
-    /// tradable (Kalshi 1–99 when `collat = 100`, `step = 1`).
     pub fn linear(collat_ticks: u32, step: u32) -> Result<Self, GridError> {
+        Self::banded(
+            collat_ticks,
+            vec![Band {
+                start: 0,
+                end: collat_ticks,
+                step,
+            }],
+        )
+    }
+
+    /// Banded / tapered grid (Kalshi `price_ranges`). Bands must be
+    /// complement-symmetric so `complement` stays on-grid.
+    pub fn banded(collat_ticks: u32, bands: Vec<Band>) -> Result<Self, GridError> {
         if collat_ticks == 0 {
             return Err(GridError::ZeroCollateral);
         }
-        if step == 0 {
-            return Err(GridError::ZeroStep);
+        if bands.is_empty() {
+            return Err(GridError::EmptyBands);
         }
-        if collat_ticks % step != 0 {
-            return Err(GridError::StepNotDivisor);
+        for b in &bands {
+            if b.step == 0 {
+                return Err(GridError::ZeroStep);
+            }
+            if b.start > b.end || b.end > collat_ticks {
+                return Err(GridError::BandOrder);
+            }
+            if (b.end - b.start) % b.step != 0 {
+                return Err(GridError::StepNotDivisor);
+            }
         }
-        if collat_ticks <= step {
+        let grid = Self {
+            collat: Price::from_ticks(collat_ticks),
+            bands,
+        };
+        if !grid.has_tradable() {
             return Err(GridError::NoTradablePrice);
         }
-        Ok(Self {
-            collat: Price::from_ticks(collat_ticks),
-            step,
-        })
+        if !grid.complements_on_grid() {
+            return Err(GridError::AsymmetricBands);
+        }
+        Ok(grid)
     }
 
-    /// One-cent binary contract: prices `1..=99`, collat `100`.
     pub fn cents() -> Self {
         Self::linear(100, 1).expect("cents grid is valid")
     }
@@ -56,34 +87,57 @@ impl TickGrid {
         self.collat
     }
 
+    /// Finest step across bands (linear grids: the single step).
     pub fn step(&self) -> u32 {
-        self.step
+        self.bands.iter().map(|b| b.step).min().unwrap_or(1)
     }
 
-    /// True if `p` is a multiple of `step` in `0..=collat` (includes bounds).
+    pub fn bands(&self) -> &[Band] {
+        &self.bands
+    }
+
     pub fn contains(&self, p: Price) -> bool {
         let t = p.ticks();
-        t <= self.collat.ticks() && t % self.step == 0
+        t <= self.collat.ticks() && self.bands.iter().any(|b| b.contains(t))
     }
 
-    /// True if `p` can rest or take: on-grid and strictly inside `(0, collat)`.
     pub fn is_tradable(&self, p: Price) -> bool {
         let t = p.ticks();
-        t > 0 && t < self.collat.ticks() && t % self.step == 0
+        t > 0 && t < self.collat.ticks() && self.contains(p)
     }
 
-    /// `collat - p`. Caller must pass a price that [`contains`] this grid.
     pub fn complement(&self, p: Price) -> Price {
         debug_assert!(self.contains(p), "complement of off-grid price");
         Price::from_ticks(self.collat.ticks() - p.ticks())
     }
 
-    /// Snap down to the nearest tradable tick; `None` if below the first tick.
     pub fn clamp(&self, p: Price) -> Option<Price> {
-        let t = p.ticks().min(self.collat.ticks().saturating_sub(self.step));
-        let snapped = (t / self.step) * self.step;
-        let snapped = Price::from_ticks(snapped);
-        self.is_tradable(snapped).then_some(snapped)
+        let t = p
+            .ticks()
+            .min(self.collat.ticks().saturating_sub(self.step()));
+        let mut best: Option<u32> = None;
+        for b in &self.bands {
+            if t < b.start {
+                continue;
+            }
+            let cap = t.min(b.end);
+            let snapped = b.start + ((cap - b.start) / b.step) * b.step;
+            if snapped > 0 && snapped < self.collat.ticks() && snapped <= t {
+                best = Some(best.map_or(snapped, |x| x.max(snapped)));
+            }
+        }
+        best.map(Price::from_ticks)
+    }
+
+    fn has_tradable(&self) -> bool {
+        (1..self.collat.ticks()).any(|t| self.is_tradable(Price::from_ticks(t)))
+    }
+
+    fn complements_on_grid(&self) -> bool {
+        (0..=self.collat.ticks()).all(|t| {
+            let p = Price::from_ticks(t);
+            !self.contains(p) || self.contains(self.complement(p))
+        })
     }
 }
 
@@ -140,5 +194,65 @@ mod tests {
         assert_eq!(g.clamp(Price::from_ticks(99)), Some(Price::from_ticks(95)));
         assert_eq!(g.clamp(Price::ZERO), None);
         assert_eq!(g.clamp(Price::from_ticks(100)), Some(Price::from_ticks(95)));
+    }
+
+    #[test]
+    fn deci_cent_linear() {
+        let g = TickGrid::linear(1000, 1).unwrap();
+        assert!(g.is_tradable(Price::from_ticks(1)));
+        assert_eq!(g.complement(Price::from_ticks(1)).ticks(), 999);
+    }
+
+    #[test]
+    fn tapered_edges_finer_than_center() {
+        // collat 1000 = $1 in 0.1¢ ticks. 0.001 on edges, 0.01 in the middle.
+        let g = TickGrid::banded(
+            1000,
+            vec![
+                Band {
+                    start: 0,
+                    end: 100,
+                    step: 1,
+                },
+                Band {
+                    start: 100,
+                    end: 900,
+                    step: 10,
+                },
+                Band {
+                    start: 900,
+                    end: 1000,
+                    step: 1,
+                },
+            ],
+        )
+        .unwrap();
+        assert!(g.is_tradable(Price::from_ticks(15)));
+        assert!(!g.is_tradable(Price::from_ticks(105)));
+        assert!(g.is_tradable(Price::from_ticks(110)));
+        assert_eq!(g.complement(Price::from_ticks(15)).ticks(), 985);
+        assert!(g.is_tradable(g.complement(Price::from_ticks(15))));
+        assert_eq!(g.complement(Price::from_ticks(110)).ticks(), 890);
+        assert!(g.is_tradable(Price::from_ticks(890)));
+    }
+
+    #[test]
+    fn asymmetric_bands_rejected() {
+        let err = TickGrid::banded(
+            100,
+            vec![
+                Band {
+                    start: 0,
+                    end: 10,
+                    step: 1,
+                },
+                Band {
+                    start: 10,
+                    end: 100,
+                    step: 5,
+                },
+            ],
+        );
+        assert_eq!(err, Err(GridError::AsymmetricBands));
     }
 }
