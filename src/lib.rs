@@ -6,6 +6,7 @@
 pub mod book;
 pub mod matching;
 pub mod types;
+pub mod venue;
 
 pub use book::{BinaryBook, BookEvent, NewOrder, RejectReason};
 pub use matching::{MatchKind, canonicalize, match_kind};
