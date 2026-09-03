@@ -1,0 +1,11 @@
+[package]
+name = "binary-books"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic matching engine for binary prediction markets"
+license = "MIT"
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
