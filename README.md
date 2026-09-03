@@ -68,6 +68,30 @@ let yes = binary_books::venue::polymarket::snapshot(&book, Outcome::Yes);
 
 A resting buy-NO at 40¢ is a Kalshi NO bid at 40 and a Polymarket YES ask at 60.
 
+## Settlement (Polymarket tokens)
+
+`TokenLedger` applies fills so mint / merge / complementary actually move cash
+and outcome tokens. `Exchange` wraps the matcher and ledger: a sell is rejected
+without inventory, and resting sells lock those shares so they cannot be sold
+twice.
+
+```rust
+use binary_books::*;
+
+let mut x = Exchange::new(Qty::ONE, TickGrid::cents());
+x.open_event(EventId::from_raw(1), [MarketId::from_raw(1)])?;
+x.credit_cash(OwnerId::from_raw(1), 10_000);
+x.split(OwnerId::from_raw(1), MarketId::from_raw(1), Qty::from_lots(10))?;
+// now owner 1 can sell YES or NO
+```
+
+Kalshi-style cash shorts stay on `CashLedger` / `RiskPort` and do not need
+tokens. Size-down amends: `Engine::reduce` keeps time priority. A price change
+is `Engine::replace` (cancel + new).
+
+Replay: `replay` for a single book, `replay_engine` for the multi-market
+facade.
+
 ## Multi-outcome events
 
 An `Event` owns N independent `BinaryBook`s (winner-takes-all). Matching is

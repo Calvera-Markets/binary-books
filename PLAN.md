@@ -409,13 +409,14 @@ Separate **adapter** modules, not separate engines:
 - Explicit “not a venue” scope
 - `examples/launch_mint.rs`, `examples/views.rs`
 
-### Later, not this stream
+### Later (partially done after C18)
 
-- Token inventory + `Complementary` vs `Mint` *execution* (not just labels)
-- NegRisk conversion ops
-- Replace/amend that preserves priority on size-down
-- Benchmarks (criterion: place/cancel/sweep)
-- FFI / Python bindings if a research host needs them
+- Token inventory + `Complementary` vs `Mint` *execution* — done (`TokenLedger`, `Exchange`)
+- Replace/amend that preserves priority on size-down — done (`Engine::reduce` / `replace`)
+- Engine journal replay — done (`replay_engine`)
+- Benchmarks — done (`benches/book.rs`)
+- NegRisk conversion ops — still later
+- FFI / Python bindings if a research host needs them — still later
 
 ---
 
