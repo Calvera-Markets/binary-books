@@ -1,5 +1,5 @@
 use crate::matching::MatchKind;
-use crate::types::{OrderId, Price, Qty, Seq};
+use crate::types::{Action, OrderId, Outcome, OwnerId, Price, Qty, Seq};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RejectReason {
@@ -15,6 +15,17 @@ pub enum RejectReason {
     Closed,
     DuplicateEvent,
     Insufficient,
+    InsufficientInventory,
+}
+
+/// One side of a fill. Intents are the original `(action, outcome)`, not the
+/// canonical ladder, so settlement can mint / merge / transfer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FillParty {
+    pub order_id: OrderId,
+    pub owner: OwnerId,
+    pub action: Action,
+    pub outcome: Outcome,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,8 +35,8 @@ pub enum BookEvent {
         seq: Seq,
     },
     Trade {
-        taker: OrderId,
-        maker: OrderId,
+        taker: FillParty,
+        maker: FillParty,
         yes_px: Price,
         no_px: Price,
         qty: Qty,

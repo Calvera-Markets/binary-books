@@ -63,6 +63,17 @@ impl CashLedger {
     pub fn available(&self, owner: OwnerId) -> u128 {
         self.bankroll(owner).saturating_sub(self.reserved(owner))
     }
+
+    /// Spend cash. Consumes matching reserve if any.
+    pub fn debit(&mut self, owner: OwnerId, amount: u128) -> Result<(), RejectReason> {
+        let acct = self.accts.entry(owner).or_default();
+        if acct.bankroll < amount {
+            return Err(RejectReason::Insufficient);
+        }
+        acct.bankroll -= amount;
+        acct.reserved = acct.reserved.saturating_sub(amount).min(acct.bankroll);
+        Ok(())
+    }
 }
 
 impl RiskPort for CashLedger {

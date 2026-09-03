@@ -1,8 +1,8 @@
 //! Property tests for matching invariants (PLAN.md).
 
 use binary_books::{
-    Action, BinaryBook, BookEvent, NewOrder, Outcome, OwnerId, Price, Qty, Stp, TickGrid,
-    TimeInForce, venue,
+    venue, Action, BinaryBook, BookEvent, NewOrder, Outcome, OwnerId, Price, Qty, Stp, TickGrid,
+    TimeInForce,
 };
 use proptest::prelude::*;
 
@@ -20,20 +20,15 @@ enum Op {
 
 fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
-        (
-            1u64..8,
-            any::<bool>(),
-            any::<bool>(),
-            1u32..99,
-            1u64..20
-        )
-            .prop_map(|(owner, buy, yes, px, qty)| Op::Place {
+        (1u64..8, any::<bool>(), any::<bool>(), 1u32..99, 1u64..20).prop_map(
+            |(owner, buy, yes, px, qty)| Op::Place {
                 owner,
                 buy,
                 yes,
                 px,
                 qty,
-            }),
+            }
+        ),
         (1u64..40).prop_map(Op::Cancel),
     ]
 }

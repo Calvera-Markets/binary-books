@@ -1,4 +1,4 @@
-use super::{BookEvent, Ladder, RejectReason};
+use super::{BookEvent, FillParty, Ladder, RejectReason};
 use crate::matching::{canonicalize, match_kind, Priority};
 use crate::types::{
     Action, BookSide, MarketId, Order, OrderId, OrderStatus, Outcome, OwnerId, Price, Qty, Seq,
@@ -329,7 +329,12 @@ impl BinaryBook {
                 .orders
                 .get_mut(&maker_id)
                 .expect("resting maker must be in the map");
-            let maker_intent = (maker.action, maker.outcome);
+            let maker_party = FillParty {
+                order_id: maker.id,
+                owner: maker.owner,
+                action: maker.action,
+                outcome: maker.outcome,
+            };
             maker.remaining = maker.remaining.saturating_sub(take);
             maker.status = if maker.remaining.is_zero() {
                 OrderStatus::Filled
@@ -340,12 +345,20 @@ impl BinaryBook {
 
             let (yes_px, no_px) = fill_prices(taker.side, best, &self.grid);
             events.push(BookEvent::Trade {
-                taker: taker.id,
-                maker: maker_id,
+                taker: FillParty {
+                    order_id: taker.id,
+                    owner: taker.owner,
+                    action: taker.action,
+                    outcome: taker.outcome,
+                },
+                maker: maker_party,
                 yes_px,
                 no_px,
                 qty: take,
-                kind: match_kind((taker.action, taker.outcome), maker_intent),
+                kind: match_kind(
+                    (taker.action, taker.outcome),
+                    (maker_party.action, maker_party.outcome),
+                ),
             });
 
             if gone {
@@ -434,8 +447,8 @@ mod tests {
                     qty,
                     kind,
                 } => Some((
-                    taker.raw(),
-                    maker.raw(),
+                    taker.order_id.raw(),
+                    maker.order_id.raw(),
                     yes_px.ticks(),
                     no_px.ticks(),
                     qty.lots(),

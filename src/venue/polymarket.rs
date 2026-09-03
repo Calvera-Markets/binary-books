@@ -74,8 +74,8 @@ pub fn fills(events: &[BookEvent]) -> Vec<Fill> {
                 qty,
                 kind,
             } => Some(Fill {
-                taker: *taker,
-                maker: *maker,
+                taker: taker.order_id,
+                maker: maker.order_id,
                 yes_px: *yes_px,
                 no_px: *no_px,
                 qty: *qty,
