@@ -11,6 +11,9 @@ pub enum RejectReason {
     PostOnlyWithTif,
     FokUnfilled,
     Expired,
+    MinSize,
+    Closed,
+    DuplicateEvent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

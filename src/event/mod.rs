@@ -12,6 +12,7 @@ pub struct Event {
     id: EventId,
     grid: TickGrid,
     markets: BTreeMap<MarketId, BinaryBook>,
+    open: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,7 +32,12 @@ impl Event {
             .into_iter()
             .map(|m| (m, BinaryBook::new(grid.clone())))
             .collect();
-        Self { id, grid, markets }
+        Self {
+            id,
+            grid,
+            markets,
+            open: true,
+        }
     }
 
     pub fn id(&self) -> EventId {
@@ -46,6 +52,14 @@ impl Event {
         self.markets.keys().copied()
     }
 
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+
     pub fn book(&self, market: MarketId) -> Option<&BinaryBook> {
         self.markets.get(&market)
     }
@@ -55,6 +69,9 @@ impl Event {
     }
 
     pub fn place(&mut self, market: MarketId, order: NewOrder) -> Result<Vec<BookEvent>, RejectReason> {
+        if !self.open {
+            return Err(RejectReason::Closed);
+        }
         self.markets
             .get_mut(&market)
             .map(|b| b.place(order))
