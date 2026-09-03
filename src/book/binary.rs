@@ -130,6 +130,70 @@ impl BinaryBook {
         events
     }
 
+    pub fn cancel(&mut self, id: OrderId) -> Vec<BookEvent> {
+        let Some(order) = self.orders.remove(&id) else {
+            return vec![BookEvent::Rejected {
+                order_id: id,
+                reason: RejectReason::NotFound,
+            }];
+        };
+        let _ = self.ladder_mut(order.side).cancel(order.price, id);
+        vec![BookEvent::Canceled {
+            order_id: id,
+            remaining: order.remaining,
+        }]
+    }
+
+    pub fn cancel_all(&mut self, owner: OwnerId) -> Vec<BookEvent> {
+        let ids: Vec<OrderId> = self
+            .orders
+            .values()
+            .filter(|o| o.owner == owner)
+            .map(|o| o.id)
+            .collect();
+        let mut events = Vec::new();
+        for id in ids {
+            events.extend(self.cancel(id));
+        }
+        events
+    }
+
+    /// Set remaining to `new_qty`. Zero cancels. Must be strictly less than
+    /// current remaining to keep time priority; equal is a no-op accept.
+    pub fn reduce(&mut self, id: OrderId, new_qty: Qty) -> Vec<BookEvent> {
+        let Some(order) = self.orders.get(&id) else {
+            return vec![BookEvent::Rejected {
+                order_id: id,
+                reason: RejectReason::NotFound,
+            }];
+        };
+        if new_qty.is_zero() {
+            return self.cancel(id);
+        }
+        if new_qty == order.remaining {
+            return vec![];
+        }
+        if new_qty > order.remaining {
+            return vec![BookEvent::Rejected {
+                order_id: id,
+                reason: RejectReason::InvalidReduce,
+            }];
+        }
+        let delta = order.remaining.saturating_sub(new_qty);
+        let side = order.side;
+        let price = order.price;
+        assert!(
+            self.ladder_mut(side).reduce(price, id, delta),
+            "level qty must match order remaining"
+        );
+        let order = self.orders.get_mut(&id).expect("still present");
+        order.remaining = new_qty;
+        vec![BookEvent::Resting {
+            order_id: id,
+            remaining: new_qty,
+        }]
+    }
+
     fn match_incoming(&mut self, taker: &mut Order, events: &mut Vec<BookEvent>) {
         let opposite = taker.side.opposite();
         while !taker.remaining.is_zero() {
@@ -369,6 +433,72 @@ mod tests {
             trades(&ev),
             vec![(2, 1, 60, 40, 50, MatchKind::Complementary)]
         );
+    }
+
+    #[test]
+    fn cancel_unfilled_and_unknown() {
+        let mut b = book();
+        b.place(new_order(1, Action::Buy, Outcome::Yes, 40, 10));
+        let ev = b.cancel(oid(1));
+        assert_eq!(
+            ev,
+            vec![BookEvent::Canceled {
+                order_id: oid(1),
+                remaining: q(10)
+            }]
+        );
+        assert!(b.yes_bids().is_empty());
+        assert!(matches!(
+            b.cancel(oid(1))[0],
+            BookEvent::Rejected {
+                reason: RejectReason::NotFound,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn cancel_remainder_after_partial() {
+        let mut b = book();
+        b.place(new_order(1, Action::Buy, Outcome::No, 40, 40));
+        b.place(new_order(2, Action::Buy, Outcome::Yes, 60, 100));
+        let ev = b.cancel(oid(2));
+        assert_eq!(
+            ev,
+            vec![BookEvent::Canceled {
+                order_id: oid(2),
+                remaining: q(60)
+            }]
+        );
+        assert!(b.yes_bids().is_empty());
+    }
+
+    #[test]
+    fn reduce_keeps_fifo_place() {
+        let mut b = book();
+        b.place(new_order(1, Action::Buy, Outcome::Yes, 60, 10));
+        b.place(new_order(2, Action::Buy, Outcome::Yes, 60, 10));
+        b.reduce(oid(1), q(3));
+        let ev = b.place(new_order(3, Action::Buy, Outcome::No, 40, 5));
+        // id 1 still first at 60, even after reduce.
+        assert_eq!(trades(&ev)[0].1, 1);
+        assert_eq!(trades(&ev)[0].4, 3);
+        assert_eq!(trades(&ev)[1].1, 2);
+        assert_eq!(trades(&ev)[1].4, 2);
+    }
+
+    #[test]
+    fn cancel_all_owner() {
+        let mut b = book();
+        b.place(new_order(1, Action::Buy, Outcome::Yes, 40, 1));
+        let mut other = new_order(2, Action::Buy, Outcome::Yes, 41, 1);
+        other.owner = OwnerId::from_raw(1);
+        b.place(other);
+        b.place(new_order(3, Action::Buy, Outcome::No, 20, 1));
+        let ev = b.cancel_all(OwnerId::from_raw(1));
+        assert_eq!(ev.len(), 2);
+        assert!(b.order(oid(3)).is_some());
+        assert!(b.order(oid(1)).is_none());
     }
 
     #[test]

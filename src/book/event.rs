@@ -5,6 +5,8 @@ use crate::types::{OrderId, Price, Qty, Seq};
 pub enum RejectReason {
     InvalidTick,
     ZeroQty,
+    NotFound,
+    InvalidReduce,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +24,10 @@ pub enum BookEvent {
         kind: MatchKind,
     },
     Resting {
+        order_id: OrderId,
+        remaining: Qty,
+    },
+    Canceled {
         order_id: OrderId,
         remaining: Qty,
     },
