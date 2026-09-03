@@ -7,7 +7,8 @@ pub mod book;
 pub mod matching;
 pub mod types;
 
-pub use matching::canonicalize;
+pub use book::{BinaryBook, BookEvent, NewOrder, RejectReason};
+pub use matching::{MatchKind, canonicalize, match_kind};
 pub use types::{
     Action, BookSide, EventId, GridError, MarketId, Order, OrderId, OrderStatus, Outcome, OwnerId,
     Price, Qty, Seq, TickGrid, TimeInForce, Ts, notional,
