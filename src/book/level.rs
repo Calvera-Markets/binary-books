@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 struct Entry {
     id: OrderId,
     qty: Qty,
+    is_sell: bool,
 }
 
 /// FIFO queue at a single price. Quantity decreases keep place; the book
@@ -41,34 +42,58 @@ impl Level {
     }
 
     pub fn push_back(&mut self, id: OrderId, qty: Qty) {
+        self.push_back_ranked(id, qty, false);
+    }
+
+    pub fn push_back_ranked(&mut self, id: OrderId, qty: Qty, is_sell: bool) {
         debug_assert!(!qty.is_zero());
         self.qty = self.qty.saturating_add(qty);
-        self.entries.push_back(Entry { id, qty });
+        self.entries.push_back(Entry { id, qty, is_sell });
     }
 
     pub fn push_front(&mut self, id: OrderId, qty: Qty) {
-        debug_assert!(!qty.is_zero());
-        self.qty = self.qty.saturating_add(qty);
-        self.entries.push_front(Entry { id, qty });
+        self.push_front_ranked(id, qty, false);
     }
 
-    pub fn pop_front(&mut self) -> Option<(OrderId, Qty)> {
+    pub fn push_front_ranked(&mut self, id: OrderId, qty: Qty, is_sell: bool) {
+        debug_assert!(!qty.is_zero());
+        self.qty = self.qty.saturating_add(qty);
+        self.entries.push_front(Entry { id, qty, is_sell });
+    }
+
+    pub fn pop_front(&mut self) -> Option<(OrderId, Qty, bool)> {
         let e = self.entries.pop_front()?;
         self.qty = self.qty.saturating_sub(e.qty);
-        Some((e.id, e.qty))
+        Some((e.id, e.qty, e.is_sell))
     }
 
     /// Fill `qty` from the head. Returns the head id and how much was taken.
     /// Head is removed if its remaining hits zero.
     pub fn take_front(&mut self, qty: Qty) -> Option<(OrderId, Qty, bool)> {
-        let front = self.entries.front_mut()?;
-        let take = front.qty.min(qty);
-        front.qty = front.qty.saturating_sub(take);
+        self.take_ranked(qty, false)
+    }
+
+    /// If `prefer_sell`, the earliest resting sell is taken before any buy-dual.
+    pub fn take_ranked(&mut self, qty: Qty, prefer_sell: bool) -> Option<(OrderId, Qty, bool)> {
+        if self.entries.is_empty() {
+            return None;
+        }
+        let idx = if prefer_sell {
+            self.entries
+                .iter()
+                .position(|e| e.is_sell)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let e = self.entries.get_mut(idx)?;
+        let take = e.qty.min(qty);
+        e.qty = e.qty.saturating_sub(take);
         self.qty = self.qty.saturating_sub(take);
-        let id = front.id;
-        let gone = front.qty.is_zero();
+        let id = e.id;
+        let gone = e.qty.is_zero();
         if gone {
-            self.entries.pop_front();
+            self.entries.remove(idx);
         }
         Some((id, take, gone))
     }
@@ -123,8 +148,8 @@ mod tests {
         lvl.push_back(id(2), q(5));
         assert_eq!(lvl.qty(), q(15));
         assert_eq!(lvl.order_count(), 2);
-        assert_eq!(lvl.pop_front(), Some((id(1), q(10))));
-        assert_eq!(lvl.pop_front(), Some((id(2), q(5))));
+        assert_eq!(lvl.pop_front(), Some((id(1), q(10), false)));
+        assert_eq!(lvl.pop_front(), Some((id(2), q(5), false)));
         assert!(lvl.is_empty());
         assert_eq!(lvl.qty(), Qty::ZERO);
     }
@@ -147,8 +172,8 @@ mod tests {
         lvl.push_back(id(3), q(3));
         assert_eq!(lvl.remove(id(2)), Some(q(2)));
         assert_eq!(lvl.qty(), q(4));
-        assert_eq!(lvl.pop_front(), Some((id(1), q(1))));
-        assert_eq!(lvl.pop_front(), Some((id(3), q(3))));
+        assert_eq!(lvl.pop_front(), Some((id(1), q(1), false)));
+        assert_eq!(lvl.pop_front(), Some((id(3), q(3), false)));
         assert!(lvl.remove(id(9)).is_none());
     }
 

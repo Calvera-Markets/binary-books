@@ -1,5 +1,5 @@
 use super::{BookEvent, Ladder, RejectReason};
-use crate::matching::{canonicalize, match_kind};
+use crate::matching::{canonicalize, match_kind, Priority};
 use crate::types::{
     Action, BookSide, MarketId, Order, OrderId, OrderStatus, Outcome, OwnerId, Price, Qty, Seq,
     Stp, TickGrid, TimeInForce, Ts,
@@ -32,16 +32,22 @@ pub struct BinaryBook {
     no_bids: Ladder,
     orders: HashMap<OrderId, Order>,
     next_seq: Seq,
+    priority: Priority,
 }
 
 impl BinaryBook {
     pub fn new(grid: TickGrid) -> Self {
+        Self::with_priority(grid, Priority::PriceTime)
+    }
+
+    pub fn with_priority(grid: TickGrid, priority: Priority) -> Self {
         Self {
             grid,
             yes_bids: Ladder::new(),
             no_bids: Ladder::new(),
             orders: HashMap::new(),
             next_seq: Seq::from_raw(1),
+            priority,
         }
     }
 
@@ -150,8 +156,12 @@ impl BinaryBook {
         } else {
             OrderStatus::Partial
         };
-        self.ladder_mut(order.side)
-            .rest(order.price, order.id, order.remaining);
+        self.ladder_mut(order.side).rest_ranked(
+            order.price,
+            order.id,
+            order.remaining,
+            order.action == Action::Sell,
+        );
         events.push(BookEvent::Resting {
             order_id: order.id,
             remaining: order.remaining,
@@ -260,7 +270,8 @@ impl BinaryBook {
 
     fn match_incoming(&mut self, taker: &mut Order, events: &mut Vec<BookEvent>) {
         let opposite = taker.side.opposite();
-        let mut parked: Vec<(Price, OrderId, Qty)> = Vec::new();
+        let mut parked: Vec<(Price, OrderId, Qty, bool)> = Vec::new();
+        let prefer_sell = self.priority == Priority::PriceSideTime;
         while !taker.remaining.is_zero() {
             let Some(best) = self.ladder(opposite).best() else {
                 break;
@@ -280,11 +291,11 @@ impl BinaryBook {
                 match taker.stp {
                     Stp::None => unreachable!(),
                     Stp::SkipMaker => {
-                        let (id, qty) = self
+                        let (id, qty, is_sell) = self
                             .ladder_mut(opposite)
                             .pop_front_at(best)
                             .expect("front just peeked");
-                        parked.push((best, id, qty));
+                        parked.push((best, id, qty, is_sell));
                         continue;
                     }
                     Stp::CancelTaker => {
@@ -309,7 +320,7 @@ impl BinaryBook {
                 }
             }
             let Some((_, maker_id, take, gone)) =
-                self.ladder_mut(opposite).take_best(taker.remaining)
+                self.ladder_mut(opposite).take_best_ranked(taker.remaining, prefer_sell)
             else {
                 break;
             };
@@ -340,8 +351,9 @@ impl BinaryBook {
                 self.orders.remove(&maker_id);
             }
         }
-        for (price, id, qty) in parked.into_iter().rev() {
-            self.ladder_mut(opposite).push_front(price, id, qty);
+        for (price, id, qty, is_sell) in parked.into_iter().rev() {
+            self.ladder_mut(opposite)
+                .push_front_ranked(price, id, qty, is_sell);
         }
         if taker.remaining.is_zero() && taker.status != OrderStatus::Canceled {
             taker.status = OrderStatus::Filled;
@@ -774,6 +786,25 @@ mod tests {
         taker.owner = OwnerId::from_raw(9);
         let ev = b.place(taker);
         assert_eq!(trades(&ev).len(), 1);
+    }
+
+    #[test]
+    fn price_side_time_sells_before_buy_duals() {
+        let mut fifo = book();
+        fifo.place(new_order(1, Action::Buy, Outcome::No, 40, 10));
+        fifo.place(new_order(2, Action::Sell, Outcome::Yes, 60, 10));
+        let ev = fifo.place(new_order(3, Action::Buy, Outcome::Yes, 60, 10));
+        assert_eq!(trades(&ev)[0].1, 1, "FIFO fills the earlier buy-NO");
+
+        let mut side = BinaryBook::with_priority(TickGrid::cents(), Priority::PriceSideTime);
+        side.place(new_order(1, Action::Buy, Outcome::No, 40, 10));
+        side.place(new_order(2, Action::Sell, Outcome::Yes, 60, 10));
+        let ev = side.place(new_order(3, Action::Buy, Outcome::Yes, 60, 10));
+        assert_eq!(
+            trades(&ev)[0].1,
+            2,
+            "price-side-time fills the sell before the buy-dual"
+        );
     }
 
     #[test]

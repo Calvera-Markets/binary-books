@@ -26,7 +26,14 @@ impl Ladder {
     }
 
     pub fn rest(&mut self, price: Price, id: OrderId, qty: Qty) {
-        self.levels.entry(price).or_default().push_back(id, qty);
+        self.rest_ranked(price, id, qty, false);
+    }
+
+    pub fn rest_ranked(&mut self, price: Price, id: OrderId, qty: Qty, is_sell: bool) {
+        self.levels
+            .entry(price)
+            .or_default()
+            .push_back_ranked(id, qty, is_sell);
     }
 
     pub fn front_id(&self, price: Price) -> Option<OrderId> {
@@ -34,7 +41,7 @@ impl Ladder {
     }
 
     /// Pop the entire FIFO head at `price` (used to park skip-maker orders).
-    pub fn pop_front_at(&mut self, price: Price) -> Option<(OrderId, Qty)> {
+    pub fn pop_front_at(&mut self, price: Price) -> Option<(OrderId, Qty, bool)> {
         let level = self.levels.get_mut(&price)?;
         let popped = level.pop_front()?;
         if level.is_empty() {
@@ -44,14 +51,29 @@ impl Ladder {
     }
 
     pub fn push_front(&mut self, price: Price, id: OrderId, qty: Qty) {
-        self.levels.entry(price).or_default().push_front(id, qty);
+        self.push_front_ranked(price, id, qty, false);
+    }
+
+    pub fn push_front_ranked(&mut self, price: Price, id: OrderId, qty: Qty, is_sell: bool) {
+        self.levels
+            .entry(price)
+            .or_default()
+            .push_front_ranked(id, qty, is_sell);
     }
 
     /// Fill against the best level's FIFO head.
     pub fn take_best(&mut self, qty: Qty) -> Option<(Price, OrderId, Qty, bool)> {
+        self.take_best_ranked(qty, false)
+    }
+
+    pub fn take_best_ranked(
+        &mut self,
+        qty: Qty,
+        prefer_sell: bool,
+    ) -> Option<(Price, OrderId, Qty, bool)> {
         let price = self.best()?;
         let level = self.levels.get_mut(&price)?;
-        let (id, take, gone) = level.take_front(qty)?;
+        let (id, take, gone) = level.take_ranked(qty, prefer_sell)?;
         if level.is_empty() {
             self.levels.remove(&price);
         }
