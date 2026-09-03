@@ -3,8 +3,11 @@
 //! One matcher (`BinaryBook`); Kalshi and Polymarket are venue adapters
 //! over the same dual-bid book. See `PLAN.md`.
 
+pub mod matching;
 pub mod types;
 
+pub use matching::canonicalize;
 pub use types::{
-    EventId, GridError, MarketId, OrderId, OwnerId, Price, Qty, Seq, TickGrid, Ts, notional,
+    Action, BookSide, EventId, GridError, MarketId, Order, OrderId, OrderStatus, Outcome, OwnerId,
+    Price, Qty, Seq, TickGrid, TimeInForce, Ts, notional,
 };

@@ -1,12 +1,18 @@
 mod grid;
 mod ids;
+mod order;
 mod price;
 mod qty;
+mod side;
+mod tif;
 
 pub use grid::{GridError, TickGrid};
 pub use ids::{EventId, MarketId, OrderId, OwnerId, Seq, Ts};
+pub use order::Order;
 pub use price::Price;
 pub use qty::Qty;
+pub use side::{Action, BookSide, Outcome};
+pub use tif::{OrderStatus, TimeInForce};
 
 /// `price.ticks() * qty.lots()` as `u128` so a full book cannot overflow `u64`.
 pub fn notional(price: Price, qty: Qty) -> u128 {
